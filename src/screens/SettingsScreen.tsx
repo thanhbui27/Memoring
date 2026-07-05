@@ -13,11 +13,24 @@ type BeforeInstallPromptEvent = Event & {
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>
 }
 
-const resolveCsvUrl = (value: string) => {
+const extractUrl = (value: string) => {
   const trimmed = value.trim()
-  if (!trimmed) throw new Error('Paste a CSV link first.')
+  const markdownUrl = trimmed.match(/\[[^\]]+\]\((https?:\/\/[^)\s]+)\)/i)?.[1]
+  const plainUrl = trimmed.match(/https?:\/\/[^\s<>)]+/i)?.[0]
+  return markdownUrl || plainUrl || trimmed
+}
 
-  const url = new URL(trimmed)
+const resolveCsvUrl = (value: string) => {
+  const extracted = extractUrl(value)
+  if (!extracted) throw new Error('Paste a CSV link first.')
+
+  let url: URL
+  try {
+    url = new URL(extracted)
+  } catch {
+    throw new Error('Paste a valid CSV, Google Sheets, or Google Drive link.')
+  }
+
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
     throw new Error('CSV link must start with http:// or https://.')
   }
@@ -132,6 +145,10 @@ export function SettingsScreen() {
       if (!response.ok) throw new Error(`CSV link returned ${response.status}.`)
 
       const text = await response.text()
+      if (/^\s*(<!doctype html|<html)/i.test(text)) {
+        throw new Error('This link returned a web page instead of CSV. Check sharing or export settings.')
+      }
+
       const responseUrl = new URL(response.url)
       const responseFilename = decodeURIComponent(responseUrl.pathname.split('/').pop() || '')
       const fileName = responseFilename.toLowerCase().endsWith('.csv') ? responseFilename : 'memoring-link-import.csv'
