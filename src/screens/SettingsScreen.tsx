@@ -1,11 +1,17 @@
-import { BarChart3, Download, FileJson, FileSpreadsheet, RotateCcw, Upload } from 'lucide-react'
+import { BarChart3, Download, FileJson, FileSpreadsheet, RotateCcw, Smartphone, Upload } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { ConfirmDialog } from '../components/ConfirmDialog'
+import { Modal } from '../components/Modal'
 import { useAppStore } from '../store/useAppStore'
 import type { AppTheme, SpeechRate } from '../types/settings'
 
 const themes: AppTheme[] = ['cream', 'orange', 'dark', 'minimal']
 const rates: SpeechRate[] = ['slow', 'normal', 'fast']
+
+type BeforeInstallPromptEvent = Event & {
+  prompt: () => Promise<void>
+  userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>
+}
 
 export function SettingsScreen() {
   const decks = useAppStore((state) => state.decks)
@@ -22,11 +28,59 @@ export function SettingsScreen() {
   const fileRef = useRef<HTMLInputElement | null>(null)
   const [resetOpen, setResetOpen] = useState(false)
   const [importDeckId, setImportDeckId] = useState('')
+  const [installHelpOpen, setInstallHelpOpen] = useState(false)
+  const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null)
+  const [isInstalled, setIsInstalled] = useState(false)
 
   useEffect(() => {
     const fallbackDeckId = activeDeckId || settings?.defaultDeckId || decks[0]?.id || ''
     setImportDeckId((current) => current || fallbackDeckId)
   }, [activeDeckId, decks, settings?.defaultDeckId])
+
+  useEffect(() => {
+    const isStandalone = () => {
+      const navigatorWithStandalone = window.navigator as Navigator & { standalone?: boolean }
+      return window.matchMedia('(display-mode: standalone)').matches || Boolean(navigatorWithStandalone.standalone)
+    }
+
+    setIsInstalled(isStandalone())
+
+    const handleBeforeInstallPrompt = (event: Event) => {
+      event.preventDefault()
+      setInstallPrompt(event as BeforeInstallPromptEvent)
+    }
+
+    const handleAppInstalled = () => {
+      setIsInstalled(true)
+      setInstallPrompt(null)
+      useAppStore.getState().showToast('MemoRing installed.')
+    }
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt)
+    window.addEventListener('appinstalled', handleAppInstalled)
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt)
+      window.removeEventListener('appinstalled', handleAppInstalled)
+    }
+  }, [])
+
+  const installApp = async () => {
+    if (isInstalled) {
+      useAppStore.getState().showToast('MemoRing is already on this device.', 'info')
+      return
+    }
+
+    if (!installPrompt) {
+      setInstallHelpOpen(true)
+      return
+    }
+
+    await installPrompt.prompt()
+    const choice = await installPrompt.userChoice
+    setInstallPrompt(null)
+    useAppStore.getState().showToast(choice.outcome === 'accepted' ? 'MemoRing installed.' : 'Install dismissed.', choice.outcome === 'accepted' ? 'success' : 'info')
+  }
 
   const importFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
@@ -95,6 +149,22 @@ export function SettingsScreen() {
         </section>
 
         <section className="panel space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <span className="label">App shortcut</span>
+              <h2 className="text-lg font-black">Add to Home Screen</h2>
+            </div>
+            <button className={isInstalled ? 'btn-primary is-active shrink-0' : 'btn shrink-0'} type="button" onClick={() => void installApp()}>
+              <Smartphone size={18} />
+              {isInstalled ? 'Installed' : 'Install'}
+            </button>
+          </div>
+          <p className="text-sm leading-6" style={{ color: 'var(--muted)' }}>
+            Open MemoRing like a native app from your phone or desktop home screen.
+          </p>
+        </section>
+
+        <section className="panel space-y-3">
           <input ref={fileRef} className="hidden" type="file" accept="application/json,.json,text/csv,.csv" onChange={(event) => void importFile(event)} />
           <label>
             <span className="label">Import to deck</span>
@@ -144,6 +214,15 @@ export function SettingsScreen() {
           setResetOpen(false)
         }}
       />
+      {installHelpOpen ? (
+        <Modal title="Add to Home Screen" onClose={() => setInstallHelpOpen(false)}>
+          <div className="space-y-3 text-sm leading-6" style={{ color: 'var(--muted)' }}>
+            <p><strong style={{ color: 'var(--text)' }}>iPhone / iPad:</strong> tap Share, then Add to Home Screen.</p>
+            <p><strong style={{ color: 'var(--text)' }}>Android Chrome:</strong> open the browser menu, then tap Install app or Add to Home screen.</p>
+            <p><strong style={{ color: 'var(--text)' }}>Desktop:</strong> use the install icon in the address bar, or open the browser menu and choose Install app.</p>
+          </div>
+        </Modal>
+      ) : null}
     </main>
   )
 }
