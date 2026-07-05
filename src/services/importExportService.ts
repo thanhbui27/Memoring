@@ -59,7 +59,44 @@ const csvHeaders = [
 
 const escapeCsv = (value: string) => `"${value.replaceAll('"', '""')}"`
 
-const parseCsv = (text: string) => {
+const requiredCsvHeaders = ['frontText', 'backText']
+
+const normalizeHeader = (value: string) => value.trim().replace(/^\uFEFF/, '')
+
+const csvHeaderAliases: Record<string, string[]> = {
+  deckName: ['deckName', 'deck', 'deck name', 'desk', 'deskName'],
+  frontText: ['frontText', 'front', 'front text', 'question', 'prompt', 'term', 'word', 'english'],
+  backText: ['backText', 'back', 'back text', 'answer', 'definition', 'meaning', 'translation', 'vietnamese'],
+  exampleText: ['exampleText', 'example', 'example text', 'sentence'],
+  noteText: ['noteText', 'note', 'notes', 'note text'],
+  tag: ['tag', 'tags'],
+  color: ['color', 'colour'],
+  isFavorite: ['isFavorite', 'favorite', 'favourite', 'starred'],
+  frontDrawing: ['frontDrawing', 'front drawing'],
+  backDrawing: ['backDrawing', 'back drawing'],
+}
+
+const normalizeHeaderToken = (value: string) =>
+  normalizeHeader(value).toLowerCase().replace(/[^a-z0-9]/g, '')
+
+const csvHeaderAliasMap = new Map(
+  Object.entries(csvHeaderAliases).flatMap(([canonical, aliases]) =>
+    aliases.map((alias) => [normalizeHeaderToken(alias), canonical] as const),
+  ),
+)
+
+const canonicalHeader = (value: string) =>
+  csvHeaderAliasMap.get(normalizeHeaderToken(value)) || normalizeHeader(value)
+
+const looksLikeSourceCode = (text: string) => {
+  const preview = text.trim().slice(0, 500)
+  return /^\s*(?:import|export)\s+/i.test(preview)
+    || /^\s*(?:const|let|var|function|class)\s+[\w$]/i.test(preview)
+    || /^\s*if\s*\(/i.test(preview)
+    || /sourceMappingURL=/.test(preview)
+}
+
+const parseCsv = (text: string, delimiter = ',') => {
   const rows: string[][] = []
   let row: string[] = []
   let cell = ''
@@ -80,7 +117,7 @@ const parseCsv = (text: string) => {
       continue
     }
 
-    if (char === ',' && !quoted) {
+    if (char === delimiter && !quoted) {
       row.push(cell)
       cell = ''
       continue
@@ -103,7 +140,52 @@ const parseCsv = (text: string) => {
   return rows
 }
 
-const normalizeHeader = (value: string) => value.trim().replace(/^\uFEFF/, '')
+const findHeaderIndex = (rows: string[][]) =>
+  rows.findIndex((row) => {
+    const headers = row.map(canonicalHeader)
+    return requiredCsvHeaders.every((header) => headers.includes(header))
+  })
+
+const getHeaderMatchCount = (row: string[]) => {
+  const headers = row.map(canonicalHeader)
+  return requiredCsvHeaders.filter((header) => headers.includes(header)).length
+}
+
+const parseCsvWithHeader = (text: string) => {
+  const separator = text.match(/^\uFEFF?\s*sep=(,|;|\t)\s*(?:\r?\n|$)/i)?.[1]
+  const delimiters = separator ? [separator] : [',', ';', '\t']
+  let bestRows: string[][] = []
+  let bestHeaderIndex = 0
+  let bestMatchCount = 0
+
+  if (looksLikeSourceCode(text)) {
+    throw new Error('This link returned app/source code instead of a MemoRing CSV file.')
+  }
+
+  for (const delimiter of delimiters) {
+    const rows = parseCsv(text, delimiter)
+    const headerIndex = findHeaderIndex(rows)
+    if (headerIndex >= 0) {
+      return rows.slice(headerIndex)
+    }
+
+    for (const [index, row] of rows.slice(0, 8).entries()) {
+      const matchCount = getHeaderMatchCount(row)
+      if (matchCount > bestMatchCount) {
+        bestRows = rows
+        bestHeaderIndex = index
+        bestMatchCount = matchCount
+      }
+    }
+  }
+
+  const headers = (bestRows[bestHeaderIndex] || []).map(canonicalHeader).filter(Boolean)
+  const missing = requiredCsvHeaders.filter((header) => !headers.includes(header))
+  const found = headers.length > 0 ? ` Found headers: ${headers.slice(0, 6).join(', ')}.` : ''
+  const preview = text.trim().replace(/\s+/g, ' ').slice(0, 120)
+  const startsWith = !found && preview ? ` File starts with: ${preview}.` : ''
+  throw new Error(`CSV template is missing: ${missing.join(', ')}.${found}${startsWith}`)
+}
 
 const csvBool = (value: string | undefined) => {
   const normalized = value?.trim().toLowerCase()
@@ -215,11 +297,11 @@ export const importExportService = {
   },
 
   async importCsv(file: File, targetDeckId?: string) {
-    const rows = parseCsv(await file.text())
+    const rows = parseCsvWithHeader(await file.text())
     if (rows.length < 2) throw new Error('CSV file needs a header row and at least one card row.')
 
-    const headers = rows[0].map(normalizeHeader)
-    const missing = ['frontText', 'backText'].filter((header) => !headers.includes(header))
+    const headers = rows[0].map(canonicalHeader)
+    const missing = requiredCsvHeaders.filter((header) => !headers.includes(header))
     if (missing.length > 0) throw new Error(`CSV template is missing: ${missing.join(', ')}.`)
 
     const existingDecks = await storageProvider.getDecks()

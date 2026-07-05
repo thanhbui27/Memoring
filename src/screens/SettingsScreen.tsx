@@ -54,6 +54,60 @@ const resolveCsvUrl = (value: string) => {
   return url.toString()
 }
 
+const shouldUseCsvProxy = (value: string) => {
+  const hostname = new URL(value).hostname
+  return hostname === 'docs.google.com' || hostname === 'drive.google.com' || hostname === 'drive.usercontent.google.com'
+}
+
+const readCsvError = async (response: Response) => {
+  const text = await response.text()
+  try {
+    const payload = JSON.parse(text) as { error?: string }
+    return payload.error || `CSV link returned ${response.status}.`
+  } catch {
+    return text.trim() || `CSV link returned ${response.status}.`
+  }
+}
+
+const looksLikeSourceCode = (text: string) => {
+  const preview = text.trim().slice(0, 500)
+  return /^\s*(?:import|export)\s+/i.test(preview)
+    || /^\s*(?:const|let|var|function|class)\s+[\w$]/i.test(preview)
+    || /^\s*if\s*\(/i.test(preview)
+    || /sourceMappingURL=/.test(preview)
+}
+
+const fetchCsvFromRequest = async (requestUrl: string, sourceUrl: string) => {
+  let response: Response
+  try {
+    response = await fetch(requestUrl, { cache: 'no-store', credentials: 'omit', mode: 'cors', redirect: 'follow' })
+  } catch {
+    throw new Error('Browser blocked this CSV link. Try a public Google Drive or Google Sheets link.')
+  }
+
+  if (!response.ok) throw new Error(await readCsvError(response))
+  const text = await response.text()
+  if (/^\s*(<!doctype html|<html)/i.test(text)) {
+    throw new Error('This link returned a web page instead of CSV. Check sharing or export settings.')
+  }
+  if (looksLikeSourceCode(text)) {
+    throw new Error('This link returned app/source code instead of a MemoRing CSV file.')
+  }
+
+  return {
+    text,
+    responseUrl: response.url || sourceUrl,
+  }
+}
+
+const fetchCsvText = async (url: string) => {
+  if (shouldUseCsvProxy(url)) {
+    return fetchCsvFromRequest(`/api/csv-proxy?url=${encodeURIComponent(url)}`, url)
+  }
+
+  return fetchCsvFromRequest(url, url)
+}
+
 export function SettingsScreen() {
   const decks = useAppStore((state) => state.decks)
   const activeDeckId = useAppStore((state) => state.activeDeckId)
@@ -141,26 +195,15 @@ export function SettingsScreen() {
     try {
       setIsImportingCsvUrl(true)
       const url = resolveCsvUrl(csvUrl)
-      const response = await fetch(url, { cache: 'no-store' })
-      if (!response.ok) throw new Error(`CSV link returned ${response.status}.`)
-
-      const text = await response.text()
-      if (/^\s*(<!doctype html|<html)/i.test(text)) {
-        throw new Error('This link returned a web page instead of CSV. Check sharing or export settings.')
-      }
-
-      const responseUrl = new URL(response.url)
+      const { text, responseUrl: fetchedUrl } = await fetchCsvText(url)
+      const responseUrl = new URL(fetchedUrl)
       const responseFilename = decodeURIComponent(responseUrl.pathname.split('/').pop() || '')
       const fileName = responseFilename.toLowerCase().endsWith('.csv') ? responseFilename : 'memoring-link-import.csv'
       const file = new File([text], fileName, { type: 'text/csv' })
       await importJson(file, importDeckId)
       setCsvUrl('')
     } catch (error) {
-      const message = error instanceof TypeError
-        ? 'Cannot read this CSV link. Make sure it is public and allows browser access.'
-        : error instanceof Error
-          ? error.message
-          : 'Import from link failed.'
+      const message = error instanceof Error ? error.message : 'Import from link failed.'
       useAppStore.getState().showToast(message, 'error')
     } finally {
       setIsImportingCsvUrl(false)
