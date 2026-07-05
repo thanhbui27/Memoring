@@ -31,6 +31,13 @@ const resolveCsvUrl = (value: string) => {
     }
   }
 
+  if (url.hostname === 'drive.google.com') {
+    const fileId = url.pathname.match(/\/file\/d\/([^/]+)/)?.[1] || url.searchParams.get('id')
+    if (fileId) {
+      return `https://drive.usercontent.google.com/download?id=${encodeURIComponent(fileId)}&export=download`
+    }
+  }
+
   return url.toString()
 }
 
