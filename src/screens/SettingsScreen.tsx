@@ -1,4 +1,4 @@
-import { BarChart3, Download, FileJson, FileSpreadsheet, RotateCcw, Smartphone, Upload } from 'lucide-react'
+import { BarChart3, Download, FileJson, FileSpreadsheet, Link, Loader2, RotateCcw, Smartphone, Upload } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { Modal } from '../components/Modal'
@@ -11,6 +11,27 @@ const rates: SpeechRate[] = ['slow', 'normal', 'fast']
 type BeforeInstallPromptEvent = Event & {
   prompt: () => Promise<void>
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>
+}
+
+const resolveCsvUrl = (value: string) => {
+  const trimmed = value.trim()
+  if (!trimmed) throw new Error('Paste a CSV link first.')
+
+  const url = new URL(trimmed)
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    throw new Error('CSV link must start with http:// or https://.')
+  }
+
+  if (url.hostname === 'docs.google.com' && url.pathname.includes('/spreadsheets/d/')) {
+    const spreadsheetId = url.pathname.match(/\/spreadsheets\/d\/([^/]+)/)?.[1]
+    if (spreadsheetId) {
+      const gidFromHash = url.hash.match(/gid=(\d+)/)?.[1]
+      const gid = url.searchParams.get('gid') || gidFromHash || '0'
+      return `https://docs.google.com/spreadsheets/d/${spreadsheetId}/export?format=csv&gid=${gid}`
+    }
+  }
+
+  return url.toString()
 }
 
 export function SettingsScreen() {
@@ -31,6 +52,8 @@ export function SettingsScreen() {
   const [installHelpOpen, setInstallHelpOpen] = useState(false)
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null)
   const [isInstalled, setIsInstalled] = useState(false)
+  const [csvUrl, setCsvUrl] = useState('')
+  const [isImportingCsvUrl, setIsImportingCsvUrl] = useState(false)
 
   useEffect(() => {
     const fallbackDeckId = activeDeckId || settings?.defaultDeckId || decks[0]?.id || ''
@@ -91,6 +114,32 @@ export function SettingsScreen() {
       useAppStore.getState().showToast(error instanceof Error ? error.message : 'Import failed.', 'error')
     } finally {
       event.target.value = ''
+    }
+  }
+
+  const importCsvFromUrl = async () => {
+    try {
+      setIsImportingCsvUrl(true)
+      const url = resolveCsvUrl(csvUrl)
+      const response = await fetch(url, { cache: 'no-store' })
+      if (!response.ok) throw new Error(`CSV link returned ${response.status}.`)
+
+      const text = await response.text()
+      const responseUrl = new URL(response.url)
+      const responseFilename = decodeURIComponent(responseUrl.pathname.split('/').pop() || '')
+      const fileName = responseFilename.toLowerCase().endsWith('.csv') ? responseFilename : 'memoring-link-import.csv'
+      const file = new File([text], fileName, { type: 'text/csv' })
+      await importJson(file, importDeckId)
+      setCsvUrl('')
+    } catch (error) {
+      const message = error instanceof TypeError
+        ? 'Cannot read this CSV link. Make sure it is public and allows browser access.'
+        : error instanceof Error
+          ? error.message
+          : 'Import from link failed.'
+      useAppStore.getState().showToast(message, 'error')
+    } finally {
+      setIsImportingCsvUrl(false)
     }
   }
 
@@ -192,6 +241,25 @@ export function SettingsScreen() {
             <Upload size={18} />
             Import JSON / CSV
           </button>
+          <div className="space-y-2">
+            <label>
+              <span className="label">CSV link</span>
+              <input
+                className="input"
+                type="url"
+                value={csvUrl}
+                onChange={(event) => setCsvUrl(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') void importCsvFromUrl()
+                }}
+                placeholder="https://example.com/cards.csv"
+              />
+            </label>
+            <button className={isImportingCsvUrl ? 'btn-primary is-active w-full' : 'btn w-full'} type="button" onClick={() => void importCsvFromUrl()} disabled={isImportingCsvUrl}>
+              {isImportingCsvUrl ? <Loader2 className="animate-spin" size={18} /> : <Link size={18} />}
+              {isImportingCsvUrl ? 'Importing...' : 'Import CSV from link'}
+            </button>
+          </div>
           <button
             className="btn-danger w-full"
             type="button"
