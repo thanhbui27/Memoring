@@ -1,0 +1,19 @@
+{
+  "name": "MemoRing",
+  "short_name": "MemoRing",
+  "description": "An offline ring-bound flashcard notebook with handwriting, speech, review scheduling, and quick tests.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "theme_color": "#f28c28",
+  "background_color": "#fff6e6",
+  "icons": [
+    {
+      "src": "/memoring-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

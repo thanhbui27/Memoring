@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="MemoRing icon">
+  <rect width="512" height="512" rx="112" fill="#fff6e6"/>
+  <rect x="118" y="132" width="276" height="300" rx="34" fill="#fffdf6" stroke="#ead8b7" stroke-width="12" transform="rotate(-5 256 282)"/>
+  <rect x="132" y="114" width="276" height="300" rx="34" fill="#ffe4b8" stroke="#e6c48f" stroke-width="12" transform="rotate(4 270 264)"/>
+  <rect x="104" y="96" width="276" height="300" rx="34" fill="#fffdf6" stroke="#ead8b7" stroke-width="12"/>
+  <path d="M160 210h168M160 260h168M160 310h116" stroke="#776b5d" stroke-width="18" stroke-linecap="round"/>
+  <circle cx="242" cy="126" r="38" fill="#9aa3aa"/>
+  <circle cx="242" cy="126" r="18" fill="#fff6e6"/>
+  <path d="M188 106c0-58 108-58 108 0" fill="none" stroke="#9aa3aa" stroke-width="24" stroke-linecap="round"/>
+  <circle cx="348" cy="354" r="44" fill="#f28c28"/>
+  <path d="M329 354l14 15 28-34" fill="none" stroke="#fff" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
